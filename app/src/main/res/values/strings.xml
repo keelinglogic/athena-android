@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Athena</string>
+    <string name="capture_photo">Capture Photo</string>
+    <string name="capture_audio">Capture Audio</string>
+    <string name="capture_text">Capture Text</string>
+    <string name="quick_task">Quick Task</string>
+</resources>
