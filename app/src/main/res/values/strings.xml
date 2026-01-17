@@ -14,4 +14,21 @@
     <string name="recent_captures">Recent</string>
     <string name="error_empty">Please enter something to capture</string>
     <string name="error_network">Network error - saved locally</string>
+
+    <!-- Voice capture -->
+    <string name="voice_hold_to_talk">Hold to Talk</string>
+    <string name="voice_release_to_send">Release to send</string>
+    <string name="voice_recording">Recording…</string>
+    <string name="voice_transcribing">Transcribing…</string>
+    <string name="voice_too_short">Recording too short</string>
+    <string name="voice_cancelled">Recording cancelled</string>
+    <string name="voice_no_speech">No speech detected</string>
+    <string name="voice_error">Recording failed</string>
+    <string name="voice_success">Transcribed!</string>
+    <string name="voice_mic_permission">Microphone permission required</string>
+    <string name="voice_mic_unavailable">Microphone unavailable</string>
+    <string name="voice_pending_title">Previous recording not uploaded</string>
+    <string name="voice_pending_retry">Retry Upload</string>
+    <string name="voice_pending_discard">Discard</string>
+    <string name="voice_max_duration_warning">Recording will stop in 30 seconds</string>
 </resources>

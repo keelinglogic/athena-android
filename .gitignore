@@ -35,3 +35,7 @@ local.properties
 
 # Android Profiling
 *.hprof
+
+# Keystore files (never commit these)
+*.jks
+*.keystore
