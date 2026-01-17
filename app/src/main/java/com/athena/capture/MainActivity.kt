@@ -48,7 +48,7 @@ class MainActivity : AppCompatActivity() {
             val request = CaptureRequest(
                 captureType = "task",
                 content = content,
-                deviceId = getDeviceId()
+                deviceId = buildDeviceId()
             )
 
             val response = captureApi.sendCapture(request)
@@ -116,7 +116,7 @@ class MainActivity : AppCompatActivity() {
         currentFocus?.let { imm.hideSoftInputFromWindow(it.windowToken, 0) }
     }
 
-    private fun getDeviceId(): String {
+    private fun buildDeviceId(): String {
         return "${Build.MANUFACTURER}-${Build.MODEL}".lowercase().replace(" ", "-")
     }
 }
