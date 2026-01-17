@@ -5,4 +5,13 @@
     <string name="capture_audio">Capture Audio</string>
     <string name="capture_text">Capture Text</string>
     <string name="quick_task">Quick Task</string>
+    <string name="hint_quick_task">What do you want to capture?</string>
+    <string name="submit_task">Capture</string>
+    <string name="status_ready">Ready</string>
+    <string name="status_sending">Sending…</string>
+    <string name="status_success">Captured!</string>
+    <string name="status_error">Error</string>
+    <string name="recent_captures">Recent</string>
+    <string name="error_empty">Please enter something to capture</string>
+    <string name="error_network">Network error - saved locally</string>
 </resources>
