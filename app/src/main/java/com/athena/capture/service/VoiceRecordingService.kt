@@ -46,8 +46,14 @@ class VoiceRecordingService : Service() {
     private var audioFile: File? = null
     private var currentCaptureUuid: UUID? = null
     private var recordingStartTime: Long = 0
-    private var isRecording = false
-    private var isUploading = false
+
+    // Thread-safe flags - accessed from multiple threads (UI, service callbacks)
+    @Volatile private var isRecording = false
+    @Volatile private var isUploading = false
+    @Volatile private var mediaRecorderStarted = false  // Track if start() was called successfully
+
+    // Lock for stopRecordingInternal to prevent double-call race condition
+    private val stopLock = Any()
 
     // Service-scoped coroutine for uploads (survives activity lifecycle)
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
@@ -155,6 +161,7 @@ class VoiceRecordingService : Service() {
 
                 prepare()
                 start()
+                mediaRecorderStarted = true  // Track that start() succeeded
             }
 
             recordingStartTime = System.currentTimeMillis()
@@ -180,46 +187,49 @@ class VoiceRecordingService : Service() {
     }
 
     private fun stopRecordingInternal(): RecordingResult? {
-        if (!isRecording) {
-            Log.w(TAG, "Not currently recording")
-            return null
+        // Synchronized block prevents double-call race condition
+        synchronized(stopLock) {
+            if (!isRecording) {
+                Log.w(TAG, "Not currently recording")
+                return null
+            }
+
+            val duration = System.currentTimeMillis() - recordingStartTime
+            isRecording = false  // Set immediately inside lock to prevent re-entry
+
+            releaseRecorder()
+            stopForeground(STOP_FOREGROUND_REMOVE)
+
+            val file = audioFile
+            val uuid = currentCaptureUuid
+
+            if (file == null || uuid == null) {
+                onRecordingStateChanged?.invoke(RecordingState.Error("Recording file not found"))
+                return null
+            }
+
+            if (duration < MIN_DURATION_MS) {
+                file.delete()
+                onRecordingStateChanged?.invoke(RecordingState.TooShort)
+                return null
+            }
+
+            if (!file.exists() || file.length() == 0L) {
+                onRecordingStateChanged?.invoke(RecordingState.Error("Recording file is empty"))
+                return null
+            }
+
+            val result = RecordingResult(
+                file = file,
+                uuid = uuid,
+                durationMs = duration,
+                fileSize = file.length()
+            )
+
+            onRecordingStateChanged?.invoke(RecordingState.Completed(result))
+            Log.i(TAG, "Recording stopped: duration=${duration}ms, size=${file.length()} bytes")
+            return result
         }
-
-        val duration = System.currentTimeMillis() - recordingStartTime
-        isRecording = false
-
-        releaseRecorder()
-        stopForeground(STOP_FOREGROUND_REMOVE)
-
-        val file = audioFile
-        val uuid = currentCaptureUuid
-
-        if (file == null || uuid == null) {
-            onRecordingStateChanged?.invoke(RecordingState.Error("Recording file not found"))
-            return null
-        }
-
-        if (duration < MIN_DURATION_MS) {
-            file.delete()
-            onRecordingStateChanged?.invoke(RecordingState.TooShort)
-            return null
-        }
-
-        if (!file.exists() || file.length() == 0L) {
-            onRecordingStateChanged?.invoke(RecordingState.Error("Recording file is empty"))
-            return null
-        }
-
-        val result = RecordingResult(
-            file = file,
-            uuid = uuid,
-            durationMs = duration,
-            fileSize = file.length()
-        )
-
-        onRecordingStateChanged?.invoke(RecordingState.Completed(result))
-        Log.i(TAG, "Recording stopped: duration=${duration}ms, size=${file.length()} bytes")
-        return result
     }
 
     fun cancelRecording() {
@@ -305,11 +315,16 @@ class VoiceRecordingService : Service() {
     fun getVoiceCaptureApi(): VoiceCaptureApi = voiceCaptureApi
 
     private fun releaseRecorder() {
-        try {
-            mediaRecorder?.stop()
-        } catch (e: Exception) {
-            // MediaRecorder can throw RuntimeException or IllegalStateException
-            Log.w(TAG, "MediaRecorder stop failed", e)
+        // Only call stop() if start() was successfully called
+        // Calling stop() on a MediaRecorder that hasn't started throws RuntimeException
+        if (mediaRecorderStarted) {
+            try {
+                mediaRecorder?.stop()
+            } catch (e: Exception) {
+                // MediaRecorder can throw RuntimeException or IllegalStateException
+                Log.w(TAG, "MediaRecorder stop failed", e)
+            }
+            mediaRecorderStarted = false
         }
         try {
             mediaRecorder?.reset()

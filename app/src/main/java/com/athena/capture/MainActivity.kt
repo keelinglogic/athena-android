@@ -44,6 +44,9 @@ class MainActivity : AppCompatActivity() {
     private val timerHandler = Handler(Looper.getMainLooper())
     private var timerRunnable: Runnable? = null
 
+    // Track pending runnables for cleanup
+    private val pendingRunnables = mutableListOf<Runnable>()
+
     private val serviceConnection = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName?, service: IBinder?) {
             val binder = service as VoiceRecordingService.LocalBinder
@@ -51,23 +54,31 @@ class MainActivity : AppCompatActivity() {
             isServiceBound = true
 
             voiceService?.onRecordingStateChanged = { state ->
-                runOnUiThread { handleRecordingState(state) }
+                if (!isDestroyed && !isFinishing) {
+                    runOnUiThread { handleRecordingState(state) }
+                }
             }
 
             voiceService?.onMaxDurationReached = {
-                runOnUiThread {
-                    Toast.makeText(this@MainActivity, R.string.voice_success, Toast.LENGTH_SHORT).show()
+                if (!isDestroyed && !isFinishing) {
+                    runOnUiThread {
+                        Toast.makeText(this@MainActivity, R.string.voice_success, Toast.LENGTH_SHORT).show()
+                    }
                 }
             }
 
             voiceService?.onWarningDurationReached = {
-                runOnUiThread {
-                    Toast.makeText(this@MainActivity, R.string.voice_max_duration_warning, Toast.LENGTH_LONG).show()
+                if (!isDestroyed && !isFinishing) {
+                    runOnUiThread {
+                        Toast.makeText(this@MainActivity, R.string.voice_max_duration_warning, Toast.LENGTH_LONG).show()
+                    }
                 }
             }
 
             voiceService?.onUploadStateChanged = { state ->
-                runOnUiThread { handleUploadState(state) }
+                if (!isDestroyed && !isFinishing) {
+                    runOnUiThread { handleUploadState(state) }
+                }
             }
         }
 
@@ -107,17 +118,26 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
-        super.onDestroy()
-        stopTimer()
-        // Clear callbacks to prevent memory leaks
+        // Clear callbacks FIRST to prevent crash from callback during destruction
         voiceService?.onRecordingStateChanged = null
         voiceService?.onMaxDurationReached = null
         voiceService?.onWarningDurationReached = null
         voiceService?.onUploadStateChanged = null
+
+        // Cancel all pending postDelayed callbacks
+        pendingRunnables.forEach { binding.root.removeCallbacks(it) }
+        pendingRunnables.clear()
+
+        // Stop timer
+        stopTimer()
+
+        // Unbind service
         if (isServiceBound) {
             unbindService(serviceConnection)
             isServiceBound = false
         }
+
+        super.onDestroy()
     }
 
     private fun bindVoiceService() {
@@ -295,10 +315,14 @@ class MainActivity : AppCompatActivity() {
         binding.voiceTranscript.text = transcript
         binding.voiceTranscript.visibility = View.VISIBLE
 
-        // Auto-hide after 5 seconds
-        binding.root.postDelayed({
-            binding.voiceTranscript.visibility = View.GONE
-        }, 5000)
+        // Auto-hide after 5 seconds (tracked for cleanup)
+        val runnable = Runnable {
+            if (!isDestroyed && !isFinishing) {
+                binding.voiceTranscript.visibility = View.GONE
+            }
+        }
+        pendingRunnables.add(runnable)
+        binding.root.postDelayed(runnable, 5000)
     }
 
     private fun showVoiceError(message: String) {
@@ -307,10 +331,14 @@ class MainActivity : AppCompatActivity() {
         binding.voiceStatus.setTextColor(getColor(android.R.color.holo_red_dark))
         binding.voiceStatus.visibility = View.VISIBLE
 
-        binding.root.postDelayed({
-            binding.voiceStatus.visibility = View.GONE
-            binding.voiceStatus.setTextColor(getColor(android.R.color.darker_gray))
-        }, 3000)
+        val runnable = Runnable {
+            if (!isDestroyed && !isFinishing) {
+                binding.voiceStatus.visibility = View.GONE
+                binding.voiceStatus.setTextColor(getColor(android.R.color.darker_gray))
+            }
+        }
+        pendingRunnables.add(runnable)
+        binding.root.postDelayed(runnable, 3000)
     }
 
     private fun hideVoiceStatus() {
@@ -400,10 +428,14 @@ class MainActivity : AppCompatActivity() {
 
         Toast.makeText(this, R.string.status_success, Toast.LENGTH_SHORT).show()
 
-        binding.root.postDelayed({
-            binding.statusText.text = getString(R.string.status_ready)
-            binding.statusText.setTextColor(getColor(android.R.color.darker_gray))
-        }, 2000)
+        val runnable = Runnable {
+            if (!isDestroyed && !isFinishing) {
+                binding.statusText.text = getString(R.string.status_ready)
+                binding.statusText.setTextColor(getColor(android.R.color.darker_gray))
+            }
+        }
+        pendingRunnables.add(runnable)
+        binding.root.postDelayed(runnable, 2000)
     }
 
     private fun onCaptureError(error: String) {
@@ -411,10 +443,14 @@ class MainActivity : AppCompatActivity() {
         binding.statusText.setTextColor(getColor(android.R.color.holo_red_dark))
         Toast.makeText(this, "Error: $error", Toast.LENGTH_LONG).show()
 
-        binding.root.postDelayed({
-            binding.statusText.text = getString(R.string.status_ready)
-            binding.statusText.setTextColor(getColor(android.R.color.darker_gray))
-        }, 3000)
+        val runnable = Runnable {
+            if (!isDestroyed && !isFinishing) {
+                binding.statusText.text = getString(R.string.status_ready)
+                binding.statusText.setTextColor(getColor(android.R.color.darker_gray))
+            }
+        }
+        pendingRunnables.add(runnable)
+        binding.root.postDelayed(runnable, 3000)
     }
 
     private fun setLoading(loading: Boolean) {

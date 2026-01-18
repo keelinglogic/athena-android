@@ -13,6 +13,7 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.asRequestBody
 import okhttp3.RequestBody.Companion.toRequestBody
+import org.json.JSONException
 import org.json.JSONObject
 import java.io.File
 import java.io.IOException
@@ -25,7 +26,9 @@ import kotlin.random.Random
 data class VoiceCaptureResponse(
     val success: Boolean,
     val id: Int? = null,
+    val uuid: String? = null,
     val transcript: String? = null,
+    val isNew: Boolean = false,
     val error: String? = null,
     val message: String? = null,
     val duplicate: Boolean = false,
@@ -112,17 +115,41 @@ class VoiceCaptureApi(private val context: Context) {
 
                 timeoutClient.newCall(request).execute().use { response ->
                     val responseBody = response.body?.string()
-                    val responseJson = responseBody?.let { JSONObject(it) }
+
+                    // Handle empty response body (prevents JSONException crash)
+                    val responseJson: JSONObject? = if (responseBody.isNullOrBlank()) {
+                        Log.w(TAG, "Empty response body from server (HTTP ${response.code})")
+                        null
+                    } else {
+                        try {
+                            JSONObject(responseBody)
+                        } catch (e: JSONException) {
+                            Log.e(TAG, "Failed to parse response JSON: ${e.message}")
+                            null
+                        }
+                    }
 
                     if (response.isSuccessful) {
+                        // If we got a 200 but couldn't parse JSON, treat as error
+                        if (responseJson == null) {
+                            return@withContext Result.failure(
+                                VoiceCaptureException(
+                                    "parse_error",
+                                    "Server returned invalid response"
+                                )
+                            )
+                        }
+
                         val captureResponse = VoiceCaptureResponse(
-                            success = responseJson?.optBoolean("success", false) ?: false,
-                            id = responseJson?.optInt("id"),
-                            transcript = responseJson?.optString("transcript"),
-                            error = responseJson?.optString("error"),
-                            message = responseJson?.optString("message"),
-                            duplicate = responseJson?.optBoolean("duplicate", false) ?: false,
-                            contentMismatch = responseJson?.optBoolean("content_mismatch", false) ?: false
+                            success = responseJson.optBoolean("success", false),
+                            id = if (responseJson.has("id")) responseJson.optInt("id") else null,
+                            uuid = responseJson.optString("uuid", null),
+                            transcript = responseJson.optString("transcript", null),
+                            isNew = responseJson.optBoolean("is_new", false),
+                            error = responseJson.optString("error", null),
+                            message = responseJson.optString("message", null),
+                            duplicate = responseJson.optBoolean("duplicate", false),
+                            contentMismatch = responseJson.optBoolean("content_mismatch", false)
                         )
 
                         if (captureResponse.success) {
@@ -152,11 +179,14 @@ class VoiceCaptureApi(private val context: Context) {
                         Log.w(TAG, "Rate limited, waiting ${baseDelay + jitter}ms before retry")
                         delay(baseDelay * (attempt + 1) + jitter)
                     } else {
-                        // HTTP error
+                        // HTTP error - try to get error details from response
+                        val errorMessage = responseJson?.optString("message")
+                            ?: responseJson?.optString("error")
+                            ?: "Server error: ${response.code} ${response.message}"
                         return@withContext Result.failure(
                             VoiceCaptureException(
                                 "http_error",
-                                "Server error: ${response.code} ${response.message}"
+                                errorMessage
                             )
                         )
                     }
