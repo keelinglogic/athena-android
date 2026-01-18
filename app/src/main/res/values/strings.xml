@@ -31,4 +31,11 @@
     <string name="voice_pending_retry">Retry Upload</string>
     <string name="voice_pending_discard">Discard</string>
     <string name="voice_max_duration_warning">Recording will stop in 30 seconds</string>
+
+    <!-- Accessibility Service -->
+    <string name="accessibility_service_description">Enables Flic button to start voice recording when app is in background. Required for hands-free PTT operation.</string>
+    <string name="accessibility_status_enabled">Accessibility Service: Enabled</string>
+    <string name="accessibility_status_disabled">Accessibility Service: Disabled</string>
+    <string name="accessibility_enable">Enable Accessibility</string>
+    <string name="accessibility_warning">Enable Accessibility Service for background PTT</string>
 </resources>

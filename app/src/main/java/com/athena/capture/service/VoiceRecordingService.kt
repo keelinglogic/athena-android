@@ -79,6 +79,21 @@ class VoiceRecordingService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             ACTION_START -> {
+                // CRITICAL: Must call startForeground() BEFORE any other work
+                // when started via startForegroundService() (e.g., from FlicService).
+                // Android requires startForeground() within 5 seconds or app crashes
+                // with ForegroundServiceDidNotStartInTimeException.
+                val notification = buildNotification("Recording...")
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                    startForeground(
+                        NOTIFICATION_ID,
+                        notification,
+                        ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
+                    )
+                } else {
+                    startForeground(NOTIFICATION_ID, notification)
+                }
+
                 val uuidString = intent.getStringExtra(EXTRA_UUID)
                 val uuid = uuidString?.let { UUID.fromString(it) } ?: UUID.randomUUID()
                 // Set UUID and file before calling startRecordingInternal
@@ -87,9 +102,15 @@ class VoiceRecordingService : Service() {
                 startRecordingInternal(uuid)
             }
             ACTION_STOP -> {
-                stopRecordingInternal()
-                stopForeground(STOP_FOREGROUND_REMOVE)
-                stopSelf()
+                val result = stopRecordingInternal()
+                if (result != null) {
+                    // Trigger upload for headless recording (e.g., from FlicService)
+                    uploadRecording(result)
+                } else {
+                    // No valid result - just stop the service
+                    stopForeground(STOP_FOREGROUND_REMOVE)
+                    stopSelf()
+                }
             }
         }
         return START_NOT_STICKY

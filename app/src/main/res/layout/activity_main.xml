@@ -19,6 +19,30 @@
         app:layout_constraintStart_toStartOf="parent"
         android:layout_marginTop="16dp"/>
 
+    <!-- Accessibility Indicator (green dot when enabled) -->
+    <View
+        android:id="@+id/accessibility_indicator"
+        android:layout_width="12dp"
+        android:layout_height="12dp"
+        android:background="@drawable/accessibility_indicator_bg"
+        android:visibility="gone"
+        app:layout_constraintTop_toTopOf="@id/btn_settings"
+        app:layout_constraintEnd_toStartOf="@id/btn_settings"
+        android:layout_marginEnd="4dp"
+        android:layout_marginTop="18dp"/>
+
+    <!-- Settings Button -->
+    <ImageButton
+        android:id="@+id/btn_settings"
+        android:layout_width="48dp"
+        android:layout_height="48dp"
+        android:src="@android:drawable/ic_menu_preferences"
+        android:background="?attr/selectableItemBackgroundBorderless"
+        android:contentDescription="Settings"
+        app:layout_constraintTop_toTopOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"
+        android:layout_marginTop="8dp"/>
+
     <TextView
         android:id="@+id/status_text"
         android:layout_width="wrap_content"
@@ -26,19 +50,36 @@
         android:text="@string/status_ready"
         android:textSize="14sp"
         android:textColor="@android:color/darker_gray"
-        app:layout_constraintTop_toTopOf="parent"
+        app:layout_constraintTop_toBottomOf="@id/btn_settings"
         app:layout_constraintEnd_toEndOf="parent"
-        android:layout_marginTop="24dp"/>
+        android:layout_marginTop="4dp"/>
+
+    <!-- Accessibility Warning (shown when Flic paired but accessibility disabled) -->
+    <TextView
+        android:id="@+id/accessibility_warning"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:text="@string/accessibility_warning"
+        android:textSize="12sp"
+        android:textColor="@android:color/holo_orange_dark"
+        android:background="#FFF3E0"
+        android:padding="8dp"
+        android:gravity="center"
+        android:visibility="gone"
+        app:layout_constraintTop_toBottomOf="@id/title"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"
+        android:layout_marginTop="8dp"/>
 
     <com.google.android.material.textfield.TextInputLayout
         android:id="@+id/input_layout"
         android:layout_width="0dp"
         android:layout_height="wrap_content"
         android:hint="@string/hint_quick_task"
-        app:layout_constraintTop_toBottomOf="@id/title"
+        app:layout_constraintTop_toBottomOf="@id/accessibility_warning"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent"
-        android:layout_marginTop="32dp"
+        android:layout_marginTop="16dp"
         style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox">
 
         <com.google.android.material.textfield.TextInputEditText

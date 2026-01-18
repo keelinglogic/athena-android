@@ -12,6 +12,7 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
+import android.util.Log
 import android.view.MotionEvent
 import android.view.View
 import android.view.inputmethod.InputMethodManager
@@ -22,10 +23,13 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
 import com.athena.capture.databinding.ActivityMainBinding
+import com.athena.capture.service.AthenaAccessibilityService
+import com.athena.capture.service.FlicService
 import com.athena.capture.service.RecordingResult
 import com.athena.capture.service.RecordingState
 import com.athena.capture.service.UploadState
 import com.athena.capture.service.VoiceRecordingService
+import io.flic.flic2libandroid.Flic2Manager
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -46,6 +50,10 @@ class MainActivity : AppCompatActivity() {
 
     // Track pending runnables for cleanup
     private val pendingRunnables = mutableListOf<Runnable>()
+
+    companion object {
+        private const val TAG = "MainActivity"
+    }
 
     private val serviceConnection = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName?, service: IBinder?) {
@@ -113,8 +121,14 @@ class MainActivity : AppCompatActivity() {
 
         setupSubmitButton()
         setupVoiceButton()
+        setupFlic()
         bindVoiceService()
         checkPendingUpload()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        updateAccessibilityStatus()
     }
 
     override fun onDestroy() {
@@ -474,5 +488,70 @@ class MainActivity : AppCompatActivity() {
     private fun hideKeyboard() {
         val imm = getSystemService(INPUT_METHOD_SERVICE) as InputMethodManager
         currentFocus?.let { imm.hideSoftInputFromWindow(it.windowToken, 0) }
+    }
+
+    // ========== Accessibility Status ==========
+
+    private fun updateAccessibilityStatus() {
+        val enabled = AthenaAccessibilityService.isRunning()
+
+        // Show green indicator when accessibility service is enabled
+        binding.accessibilityIndicator.visibility = if (enabled) View.VISIBLE else View.GONE
+
+        // Show warning if Flic is paired but accessibility not enabled
+        if (!enabled && hasFlicButtonPaired()) {
+            binding.accessibilityWarning.visibility = View.VISIBLE
+        } else {
+            binding.accessibilityWarning.visibility = View.GONE
+        }
+    }
+
+    private fun hasFlicButtonPaired(): Boolean {
+        return try {
+            Flic2Manager.getInstance().buttons.isNotEmpty()
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    // ========== Settings & Flic ==========
+
+    private fun setupFlic() {
+        // Settings button opens SettingsActivity
+        binding.btnSettings.setOnClickListener {
+            startActivity(Intent(this, SettingsActivity::class.java))
+        }
+
+        // Auto-start FlicService if we have paired buttons AND Bluetooth permissions
+        if (hasBluetoothPermissions()) {
+            try {
+                val buttons = Flic2Manager.getInstance().buttons
+                if (buttons.isNotEmpty()) {
+                    startFlicService()
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Flic2Manager not ready yet", e)
+            }
+        }
+    }
+
+    private fun hasBluetoothPermissions(): Boolean {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED
+        } else {
+            ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+        }
+    }
+
+    private fun startFlicService() {
+        val intent = Intent(this, FlicService::class.java).apply {
+            action = FlicService.ACTION_START
+        }
+        try {
+            ContextCompat.startForegroundService(this, intent)
+            Log.i(TAG, "FlicService started")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to start FlicService", e)
+        }
     }
 }

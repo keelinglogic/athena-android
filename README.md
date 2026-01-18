@@ -23,8 +23,40 @@ The MVP implements **Capture** functionality only - getting information into Ath
 
 ### Backend
 - **Primary**: Hermes VPS (n8n automation workflows)
+- **Database**: PostgreSQL on Hermes (`postgres-athena`)
 - **Connectivity**: Embedded WireGuard VPN (app creates own tunnel)
 - **Authentication**: mTLS (client certificates)
+
+### Database Schema
+
+Captures are stored in the `captures` table on Hermes PostgreSQL:
+
+```sql
+CREATE TABLE captures (
+    id          SERIAL PRIMARY KEY,
+    uuid        UUID NOT NULL UNIQUE,       -- Client-generated unique ID
+    device_id   VARCHAR(255) NOT NULL,      -- Device identifier
+    type        VARCHAR(50) NOT NULL,       -- voice, task, photo, chat
+    content     TEXT,                       -- Text content or transcription
+    metadata    JSONB,                      -- Type-specific metadata
+    file_data   BYTEA,                      -- Binary file (images, audio)
+    file_name   VARCHAR(255),               -- Original filename
+    file_size   BIGINT,                     -- File size in bytes
+    mime_type   VARCHAR(100),               -- MIME type
+    created_at  TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+```
+
+**Capture Types:**
+
+| Type | Content | File Data | Metadata |
+|------|---------|-----------|----------|
+| `voice` | Transcription | Audio (optional) | `{duration_seconds, timestamp}` |
+| `task` | Task text | — | `{}` |
+| `photo` | Caption | Image JPEG/PNG | `{width, height, location}` |
+| `chat` | Message | — | `{}` |
+
+**Full schema**: See `project/modules/n8n-email-workflow/SCHEMA.md` in Athena repo.
 
 ### Technology
 - **Language**: Kotlin
@@ -83,15 +115,16 @@ athena-android/
 - ✅ Basic UI scaffold (4 capture buttons)
 - ✅ Build configuration
 - ✅ Dependencies added (CameraX, OkHttp, Coroutines)
+- ✅ Voice capture (recording + transcription + backend storage)
+- ✅ Quick task capture (text + backend storage)
+- ✅ Backend API client (n8n webhook integration)
+- ✅ Database schema for image storage (2026-01-18)
 
 ### In Progress
-- 🔨 Photo capture implementation
-- 🔨 Audio recording implementation
-- 🔨 Text input implementation
-- 🔨 Quick task implementation
+- 🔨 Photo capture implementation (DB ready, app integration pending)
+- 🔨 Chat input implementation
 - 🔨 WireGuard VPN integration
 - 🔨 mTLS client certificates
-- 🔨 Backend API client
 
 ## Related
 
