@@ -1,0 +1,401 @@
+{
+  "name": "Voice Capture Workflow",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "voice-capture",
+        "responseMode": "responseNode",
+        "responseData": "firstEntryJson",
+        "options": {
+          "rawBody": false
+        }
+      },
+      "id": "webhook-trigger",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [0, 0],
+      "webhookId": "voice-capture-webhook"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Main workflow logic - handles all processing and returns response\nconst items = $input.all();\nconst item = items[0];\n\n// Get form fields - check body first (JSON POST), then root (multipart form)\nconst body = item.json.body || item.json || {};\nconst uuid = body.uuid;\nconst deviceId = body.device_id;\nconst timestamp = body.timestamp;\nconst durationSeconds = body.duration_seconds;\n\n// Check for audio binary\nconst hasBinary = item.binary && item.binary.audio;\n\n// Validation errors\nconst errors = [];\n\nif (!hasBinary) {\n  errors.push('Missing audio file');\n}\n\nif (!uuid) {\n  errors.push('Missing uuid');\n} else {\n  const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;\n  if (!uuidRegex.test(uuid)) {\n    errors.push('Invalid uuid format');\n  }\n}\n\nif (!deviceId) {\n  errors.push('Missing device_id');\n}\n\nif (!timestamp) {\n  errors.push('Missing timestamp');\n}\n\nif (!durationSeconds) {\n  errors.push('Missing duration_seconds');\n} else {\n  const duration = parseFloat(durationSeconds);\n  if (isNaN(duration) || duration <= 0 || duration > 300) {\n    errors.push('duration_seconds must be between 0 and 300');\n  }\n}\n\nif (hasBinary) {\n  const fileSize = item.binary.audio.fileSize || 0;\n  if (fileSize < 1024) {\n    errors.push('Audio file too small (min 1KB)');\n  }\n  if (fileSize > 25 * 1024 * 1024) {\n    errors.push('Audio file too large (max 25MB)');\n  }\n}\n\nif (errors.length > 0) {\n  return [{\n    json: {\n      _workflow_stage: 'validation_error',\n      success: false,\n      error: 'validation_error',\n      message: errors.join('; '),\n      responseCode: 400\n    }\n  }];\n}\n\n// Pass to transcription\nreturn [{\n  json: {\n    _workflow_stage: 'validated',\n    uuid: uuid,\n    device_id: deviceId,\n    timestamp: timestamp,\n    duration_seconds: parseFloat(durationSeconds)\n  },\n  binary: item.binary\n}];"
+      },
+      "id": "validate-input",
+      "name": "Validate Input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [220, 0]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "stage-check",
+              "leftValue": "={{ $json._workflow_stage }}",
+              "rightValue": "validated",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "check-validation",
+      "name": "Validation OK?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [440, 0]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/audio/transcriptions",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "httpHeaderAuth",
+        "sendBody": true,
+        "contentType": "multipart-form-data",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "file",
+              "parameterType": "formBinaryData",
+              "inputDataFieldName": "audio"
+            },
+            {
+              "name": "model",
+              "parameterType": "formData",
+              "value": "whisper-1"
+            },
+            {
+              "name": "language",
+              "parameterType": "formData",
+              "value": "en"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 120000
+        }
+      },
+      "id": "whisper-transcription",
+      "name": "Whisper Transcription",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [660, -100],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "DhTnHgigBqKIOApK",
+          "name": "OpenAI API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Process transcription result\nconst items = $input.all();\nconst item = items[0];\n\n// Get transcript from Whisper response\nconst transcript = (item.json.text || '').trim();\n\n// Get original validation data\nconst validationData = $('Validate Input').first().json;\n\nif (!transcript) {\n  return [{\n    json: {\n      _workflow_stage: 'no_speech',\n      success: false,\n      error: 'no_speech_detected',\n      message: 'No speech detected in audio',\n      responseCode: 400\n    }\n  }];\n}\n\nreturn [{\n  json: {\n    _workflow_stage: 'transcribed',\n    transcript: transcript,\n    uuid: validationData.uuid,\n    device_id: validationData.device_id,\n    timestamp: validationData.timestamp,\n    duration_seconds: validationData.duration_seconds\n  }\n}];"
+      },
+      "id": "check-transcript",
+      "name": "Process Transcript",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [880, -100]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "transcript-check",
+              "leftValue": "={{ $json._workflow_stage }}",
+              "rightValue": "transcribed",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "has-transcript",
+      "name": "Has Transcript?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1100, -100]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO captures (uuid, device_id, type, content, metadata, created_at)\nVALUES ($1, $2, 'voice', $3, $4, NOW())\nON CONFLICT (uuid) DO NOTHING\nRETURNING id, uuid, content",
+        "options": {
+          "queryReplacement": "={{ $json.uuid }}, {{ $json.device_id }}, {{ $json.transcript }}, {{ JSON.stringify({ 'timestamp': $json.timestamp, 'duration_seconds': $json.duration_seconds }) }}"
+        }
+      },
+      "id": "insert-capture",
+      "name": "Insert Capture",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [1320, -200],
+      "credentials": {
+        "postgres": {
+          "id": "yjZ7BDyhdWmV3sGB",
+          "name": "Athena PostgreSQL"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Check insert result and prepare final response\nconst items = $input.all();\nconst insertResult = items[0]?.json;\n\n// Get original transcript data\nconst transcriptData = $('Process Transcript').first().json;\n\n// If we got a result, insert succeeded\nif (insertResult && insertResult.id) {\n  return [{\n    json: {\n      _workflow_stage: 'complete_new',\n      success: true,\n      id: insertResult.id,\n      uuid: insertResult.uuid,\n      transcript: insertResult.content,\n      is_new: true,\n      responseCode: 200\n    }\n  }];\n}\n\n// No result means ON CONFLICT fired (duplicate UUID) - need to query existing\nreturn [{\n  json: {\n    _workflow_stage: 'need_select',\n    uuid: transcriptData.uuid,\n    transcript: transcriptData.transcript\n  }\n}];"
+      },
+      "id": "check-insert",
+      "name": "Check Insert Result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1540, -200]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "insert-check",
+              "leftValue": "={{ $json._workflow_stage }}",
+              "rightValue": "complete_new",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "was-inserted",
+      "name": "Was Inserted?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1760, -200]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT id, uuid, content FROM captures WHERE uuid = $1",
+        "options": {
+          "queryReplacement": "={{ $json.uuid }}"
+        }
+      },
+      "id": "select-existing",
+      "name": "Select Existing",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [1980, -100],
+      "credentials": {
+        "postgres": {
+          "id": "yjZ7BDyhdWmV3sGB",
+          "name": "Athena PostgreSQL"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Format existing record response\nconst item = $input.first().json;\n\nreturn [{\n  json: {\n    _workflow_stage: 'complete_existing',\n    success: true,\n    id: item.id,\n    uuid: item.uuid,\n    transcript: item.content,\n    is_new: false,\n    responseCode: 200\n  }\n}];"
+      },
+      "id": "format-existing-response",
+      "name": "Format Existing",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2200, -100]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { success: $json.success, id: $json.id, uuid: $json.uuid, transcript: $json.transcript, is_new: $json.is_new, error: $json.error, message: $json.message } }}",
+        "options": {
+          "responseCode": "={{ $json.responseCode || 200 }}",
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              }
+            ]
+          }
+        }
+      },
+      "id": "respond-webhook",
+      "name": "Respond",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [2640, 0]
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Validate Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Input": {
+      "main": [
+        [
+          {
+            "node": "Validation OK?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validation OK?": {
+      "main": [
+        [
+          {
+            "node": "Whisper Transcription",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Whisper Transcription": {
+      "main": [
+        [
+          {
+            "node": "Process Transcript",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Process Transcript": {
+      "main": [
+        [
+          {
+            "node": "Has Transcript?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Transcript?": {
+      "main": [
+        [
+          {
+            "node": "Insert Capture",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Insert Capture": {
+      "main": [
+        [
+          {
+            "node": "Check Insert Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Insert Result": {
+      "main": [
+        [
+          {
+            "node": "Was Inserted?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Was Inserted?": {
+      "main": [
+        [
+          {
+            "node": "Respond",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Select Existing",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Select Existing": {
+      "main": [
+        [
+          {
+            "node": "Format Existing",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Existing": {
+      "main": [
+        [
+          {
+            "node": "Respond",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}
