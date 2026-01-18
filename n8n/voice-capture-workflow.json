@@ -144,7 +144,7 @@
         "operation": "executeQuery",
         "query": "INSERT INTO captures (uuid, device_id, type, content, metadata, created_at)\nVALUES ($1, $2, 'voice', $3, $4, NOW())\nON CONFLICT (uuid) DO NOTHING\nRETURNING id, uuid, content",
         "options": {
-          "queryReplacement": "={{ $json.uuid }}, {{ $json.device_id }}, {{ $json.transcript }}, {{ JSON.stringify({ 'timestamp': $json.timestamp, 'duration_seconds': $json.duration_seconds }) }}"
+          "queryReplacement": "={{ $json.uuid }}, {{ $json.device_id }}, {{ $json.transcript }}, {{ JSON.stringify({ timestamp: $json.timestamp, duration_seconds: $json.duration_seconds }) }}"
         }
       },
       "id": "insert-capture",

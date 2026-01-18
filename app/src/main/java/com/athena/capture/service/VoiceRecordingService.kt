@@ -307,7 +307,8 @@ class VoiceRecordingService : Service() {
     private fun releaseRecorder() {
         try {
             mediaRecorder?.stop()
-        } catch (e: IllegalStateException) {
+        } catch (e: Exception) {
+            // MediaRecorder can throw RuntimeException or IllegalStateException
             Log.w(TAG, "MediaRecorder stop failed", e)
         }
         try {
