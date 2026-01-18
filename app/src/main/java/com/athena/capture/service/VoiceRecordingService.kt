@@ -15,6 +15,13 @@ import android.util.Log
 import androidx.core.app.NotificationCompat
 import com.athena.capture.MainActivity
 import com.athena.capture.R
+import com.athena.capture.VoiceCaptureApi
+import com.athena.capture.VoiceCaptureResponse
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
 import java.io.File
 import java.io.IOException
 import java.util.UUID
@@ -40,10 +47,16 @@ class VoiceRecordingService : Service() {
     private var currentCaptureUuid: UUID? = null
     private var recordingStartTime: Long = 0
     private var isRecording = false
+    private var isUploading = false
+
+    // Service-scoped coroutine for uploads (survives activity lifecycle)
+    private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+    private lateinit var voiceCaptureApi: VoiceCaptureApi
 
     var onRecordingStateChanged: ((RecordingState) -> Unit)? = null
     var onMaxDurationReached: (() -> Unit)? = null
     var onWarningDurationReached: (() -> Unit)? = null
+    var onUploadStateChanged: ((UploadState) -> Unit)? = null
 
     inner class LocalBinder : Binder() {
         fun getService(): VoiceRecordingService = this@VoiceRecordingService
@@ -52,6 +65,7 @@ class VoiceRecordingService : Service() {
     override fun onCreate() {
         super.onCreate()
         createNotificationChannel()
+        voiceCaptureApi = VoiceCaptureApi(this)
     }
 
     override fun onBind(intent: Intent?): IBinder = binder
@@ -223,6 +237,73 @@ class VoiceRecordingService : Service() {
         Log.i(TAG, "Recording cancelled")
     }
 
+    /**
+     * Upload recording in the service scope (survives activity backgrounding).
+     * Keeps foreground service running during upload.
+     */
+    fun uploadRecording(result: RecordingResult) {
+        if (isUploading) {
+            Log.w(TAG, "Already uploading")
+            return
+        }
+
+        isUploading = true
+        onUploadStateChanged?.invoke(UploadState.Uploading)
+
+        // Update notification to show uploading state
+        val notification = buildNotification("Uploading...")
+        val manager = getSystemService(NotificationManager::class.java)
+        manager.notify(NOTIFICATION_ID, notification)
+
+        // Ensure foreground service is running for upload
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            startForeground(
+                NOTIFICATION_ID,
+                notification,
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
+            )
+        } else {
+            startForeground(NOTIFICATION_ID, notification)
+        }
+
+        serviceScope.launch {
+            val response = voiceCaptureApi.uploadVoiceCapture(
+                audioFile = result.file,
+                uuid = result.uuid,
+                durationSeconds = result.durationMs / 1000f
+            )
+
+            isUploading = false
+
+            response.fold(
+                onSuccess = { captureResponse ->
+                    if (captureResponse.success) {
+                        Log.i(TAG, "Upload succeeded: ${captureResponse.transcript}")
+                        onUploadStateChanged?.invoke(UploadState.Success(captureResponse))
+                    } else {
+                        Log.e(TAG, "Upload failed: ${captureResponse.message}")
+                        onUploadStateChanged?.invoke(
+                            UploadState.Error(captureResponse.message ?: "Upload failed")
+                        )
+                    }
+                },
+                onFailure = { error ->
+                    Log.e(TAG, "Upload error", error)
+                    onUploadStateChanged?.invoke(
+                        UploadState.Error(error.message ?: "Upload failed")
+                    )
+                }
+            )
+
+            // Stop foreground service after upload completes
+            stopForeground(STOP_FOREGROUND_REMOVE)
+        }
+    }
+
+    fun isCurrentlyUploading(): Boolean = isUploading
+
+    fun getVoiceCaptureApi(): VoiceCaptureApi = voiceCaptureApi
+
     private fun releaseRecorder() {
         try {
             mediaRecorder?.stop()
@@ -300,6 +381,7 @@ class VoiceRecordingService : Service() {
         if (isRecording) {
             stopRecordingInternal()
         }
+        serviceScope.cancel()
         super.onDestroy()
     }
 }
@@ -319,3 +401,9 @@ data class RecordingResult(
     val durationMs: Long,
     val fileSize: Long
 )
+
+sealed class UploadState {
+    object Uploading : UploadState()
+    data class Success(val response: VoiceCaptureResponse) : UploadState()
+    data class Error(val message: String) : UploadState()
+}

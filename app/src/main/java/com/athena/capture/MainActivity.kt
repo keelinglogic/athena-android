@@ -24,8 +24,8 @@ import androidx.lifecycle.lifecycleScope
 import com.athena.capture.databinding.ActivityMainBinding
 import com.athena.capture.service.RecordingResult
 import com.athena.capture.service.RecordingState
+import com.athena.capture.service.UploadState
 import com.athena.capture.service.VoiceRecordingService
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -43,7 +43,6 @@ class MainActivity : AppCompatActivity() {
     private var isServiceBound = false
     private val timerHandler = Handler(Looper.getMainLooper())
     private var timerRunnable: Runnable? = null
-    private var uploadJob: Job? = null
 
     private val serviceConnection = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName?, service: IBinder?) {
@@ -65,6 +64,10 @@ class MainActivity : AppCompatActivity() {
                 runOnUiThread {
                     Toast.makeText(this@MainActivity, R.string.voice_max_duration_warning, Toast.LENGTH_LONG).show()
                 }
+            }
+
+            voiceService?.onUploadStateChanged = { state ->
+                runOnUiThread { handleUploadState(state) }
             }
         }
 
@@ -110,6 +113,7 @@ class MainActivity : AppCompatActivity() {
         voiceService?.onRecordingStateChanged = null
         voiceService?.onMaxDurationReached = null
         voiceService?.onWarningDurationReached = null
+        voiceService?.onUploadStateChanged = null
         if (isServiceBound) {
             unbindService(serviceConnection)
             isServiceBound = false
@@ -196,27 +200,23 @@ class MainActivity : AppCompatActivity() {
 
     private fun uploadRecording(result: RecordingResult) {
         showUploadingState()
+        // Upload via service (survives app backgrounding)
+        voiceService?.uploadRecording(result)
+    }
 
-        uploadJob = lifecycleScope.launch {
-            val response = voiceCaptureApi.uploadVoiceCapture(
-                audioFile = result.file,
-                uuid = result.uuid,
-                durationSeconds = result.durationMs / 1000f
-            )
-
-            response.fold(
-                onSuccess = { captureResponse ->
-                    if (captureResponse.success) {
-                        showTranscript(captureResponse.transcript ?: "")
-                        addToHistory("voice", captureResponse.transcript ?: "(no transcript)")
-                    } else {
-                        showVoiceError(captureResponse.message ?: "Upload failed")
-                    }
-                },
-                onFailure = { error ->
-                    showVoiceError(error.message ?: "Upload failed")
-                }
-            )
+    private fun handleUploadState(state: UploadState) {
+        when (state) {
+            is UploadState.Uploading -> {
+                showUploadingState()
+            }
+            is UploadState.Success -> {
+                val transcript = state.response.transcript ?: ""
+                showTranscript(transcript)
+                addToHistory("voice", transcript.ifEmpty { "(no transcript)" })
+            }
+            is UploadState.Error -> {
+                showVoiceError(state.message)
+            }
         }
     }
 
@@ -226,27 +226,14 @@ class MainActivity : AppCompatActivity() {
             AlertDialog.Builder(this)
                 .setTitle(R.string.voice_pending_title)
                 .setPositiveButton(R.string.voice_pending_retry) { _, _ ->
-                    showUploadingState()
-                    lifecycleScope.launch {
-                        val response = voiceCaptureApi.uploadVoiceCapture(
-                            audioFile = pending.file,
-                            uuid = pending.uuid,
-                            durationSeconds = 0f  // Unknown duration for recovered files
-                        )
-                        response.fold(
-                            onSuccess = { captureResponse ->
-                                if (captureResponse.success) {
-                                    showTranscript(captureResponse.transcript ?: "")
-                                    addToHistory("voice", captureResponse.transcript ?: "(no transcript)")
-                                } else {
-                                    showVoiceError(captureResponse.message ?: "Upload failed")
-                                }
-                            },
-                            onFailure = { error ->
-                                showVoiceError(error.message ?: "Upload failed")
-                            }
-                        )
-                    }
+                    // Create a RecordingResult for the pending upload
+                    val result = RecordingResult(
+                        file = pending.file,
+                        uuid = pending.uuid,
+                        durationMs = 0,  // Unknown duration for recovered files
+                        fileSize = pending.file.length()
+                    )
+                    uploadRecording(result)
                 }
                 .setNegativeButton(R.string.voice_pending_discard) { _, _ ->
                     pending.file.delete()
