@@ -32,6 +32,8 @@
     <!-- Boot receiver and wake lock for persistent operation -->
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <!-- Haptic feedback for PTT recording events -->
+    <uses-permission android:name="android.permission.VIBRATE" />
 
     <!-- Camera features -->
     <uses-feature android:name="android.hardware.camera" android:required="false" />

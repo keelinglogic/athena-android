@@ -15,6 +15,7 @@ import androidx.core.content.ContextCompat
 import com.athena.capture.AthenaApp
 import com.athena.capture.MainActivity
 import com.athena.capture.R
+import com.athena.capture.util.AudioFeedback
 import io.flic.flic2libandroid.Flic2Button
 import io.flic.flic2libandroid.Flic2ButtonListener
 import io.flic.flic2libandroid.Flic2Manager
@@ -220,6 +221,9 @@ class FlicService : Service() {
         val accessibilityEnabled = AthenaAccessibilityService.isRunning()
         Log.i(TAG, "Starting recording, accessibility service enabled: $accessibilityEnabled")
 
+        // Audio/haptic feedback for record start
+        AudioFeedback.playRecordStart()
+
         val intent = Intent(this, VoiceRecordingService::class.java).apply {
             action = VoiceRecordingService.ACTION_START
         }
@@ -230,6 +234,9 @@ class FlicService : Service() {
      * Stop voice recording via VoiceRecordingService.
      */
     private fun stopVoiceRecording() {
+        // Audio/haptic feedback for record stop
+        AudioFeedback.playRecordStop()
+
         val intent = Intent(this, VoiceRecordingService::class.java).apply {
             action = VoiceRecordingService.ACTION_STOP
         }

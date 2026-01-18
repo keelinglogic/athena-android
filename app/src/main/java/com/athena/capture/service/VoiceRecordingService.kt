@@ -16,6 +16,7 @@ import androidx.core.app.NotificationCompat
 import com.athena.capture.MainActivity
 import com.athena.capture.R
 import com.athena.capture.VoiceCaptureApi
+import com.athena.capture.util.AudioFeedback
 import com.athena.capture.VoiceCaptureResponse
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -310,9 +311,11 @@ class VoiceRecordingService : Service() {
                 onSuccess = { captureResponse ->
                     if (captureResponse.success) {
                         Log.i(TAG, "Upload succeeded: ${captureResponse.transcript}")
+                        AudioFeedback.playUploadSuccess()
                         onUploadStateChanged?.invoke(UploadState.Success(captureResponse))
                     } else {
                         Log.e(TAG, "Upload failed: ${captureResponse.message}")
+                        AudioFeedback.playError()
                         onUploadStateChanged?.invoke(
                             UploadState.Error(captureResponse.message ?: "Upload failed")
                         )
@@ -320,6 +323,7 @@ class VoiceRecordingService : Service() {
                 },
                 onFailure = { error ->
                     Log.e(TAG, "Upload error", error)
+                    AudioFeedback.playError()
                     onUploadStateChanged?.invoke(
                         UploadState.Error(error.message ?: "Upload failed")
                     )

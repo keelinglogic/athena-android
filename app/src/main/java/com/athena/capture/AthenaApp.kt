@@ -6,6 +6,7 @@ import android.app.NotificationManager
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
+import com.athena.capture.util.AudioFeedback
 import io.flic.flic2libandroid.Flic2Manager
 
 /**
@@ -29,6 +30,7 @@ class AthenaApp : Application() {
 
         createFlicNotificationChannel()
         initFlicManager()
+        AudioFeedback.init(this)
     }
 
     /**
